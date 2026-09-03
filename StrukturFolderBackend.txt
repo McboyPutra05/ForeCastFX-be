@@ -1,0 +1,35 @@
+backend/
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
+├── app/
+│   ├── main.py                  # Entrypoint FastAPI
+│   ├── core/                    # Konfigurasi & Security
+│   │   ├── config.py            # Pydantic Settings (.env loader)
+│   │   ├── security.py          # JWT hashing & verification
+│   │   └── database.py          # SQLAlchemy engine & session maker
+│   ├── models/                  # Database Entities (SQLAlchemy)
+│   │   ├── user.py
+│   │   ├── economic_event.py
+│   │   ├── leading_indicator.py
+│   │   └── prediction_log.py
+│   ├── schemas/                 # Pydantic Schemas (Request/Response)
+│   │   ├── auth_schema.py
+│   │   ├── calendar_schema.py
+│   │   └── prediction_schema.py
+│   ├── services/                # Business & Calculation Logic
+│   │   ├── data_ingestion.py    # Fetch data dari API eksternal
+│   │   ├── scoring_engine.py    # Algoritma Z-Score & Leading Indicators
+│   │   └── prediction_engine.py # Pipeline penentu BUY/SELL XAUUSD
+│   ├── api/                     # REST Endpoints
+│   │   └── v1/
+│   │       ├── router.py
+│   │       ├── endpoints/
+│   │       │   ├── auth.py
+│   │       │   ├── calendar.py
+│   │       │   ├── predictions.py
+│   │       │   └── histories.py
+│   └── workers/                 # Scheduled Tasks / Ingestion Cron
+│       ├── celery_app.py
+│       └── tasks.py
