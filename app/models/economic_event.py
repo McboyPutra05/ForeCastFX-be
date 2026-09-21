@@ -8,6 +8,7 @@ EconomicRelease — A specific scheduled/historical data release for an event.
 
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
 )
@@ -22,6 +24,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.prediction_log import PredictionLog
 
 
 class EconomicEvent(Base):
@@ -43,6 +48,8 @@ class EconomicEvent(Base):
         String(100), nullable=True, default="trading_economics"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_primary_anchor: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    tier: Mapped[int] = mapped_column(Integer, default=2, index=True)
 
     # Relationship: one event → many releases
     releases: Mapped[list["EconomicRelease"]] = relationship(
