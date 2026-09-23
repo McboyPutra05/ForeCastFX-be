@@ -4,12 +4,12 @@ JWT token creation & verification, password hashing (bcrypt),
 and the `get_current_user` dependency for protected endpoints.
 """
 
+import bcrypt
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,20 +17,24 @@ from app.core.config import settings
 from app.core.database import get_db
 
 # ---------------------------------------------------------------------------
-# Password hashing (bcrypt)
+# Password hashing (direct bcrypt)
 # ---------------------------------------------------------------------------
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(plain: str) -> str:
     """Return a bcrypt hash of the given password."""
-    return pwd_context.hash(plain)
+    pwd_bytes = plain.encode("utf-8")[:72]
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Verify a plain-text password against its bcrypt hash."""
-    return pwd_context.verify(plain, hashed)
+    try:
+        pwd_bytes = plain.encode("utf-8")[:72]
+        hashed_bytes = hashed.encode("utf-8")
+        return bcrypt.checkpw(pwd_bytes, hashed_bytes)
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
