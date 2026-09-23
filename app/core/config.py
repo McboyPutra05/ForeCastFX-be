@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     )
 
     # ── Database ────────────────────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@db:5432/info_trader"
-    DATABASE_URL_SYNC: str = "postgresql://postgres:password@db:5432/info_trader"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/info_trader"
+    DATABASE_URL_SYNC: str = "postgresql://postgres:password@localhost:5432/info_trader"
 
     # ── JWT Authentication ──────────────────────────────────────────────────
     JWT_SECRET_KEY: str = "change-me-in-production"
