@@ -39,6 +39,10 @@ class UpcomingReleaseOut(BaseModel):
     period_label: str | None = None
     previous_value: float | None = None
     forecast_value: float | None = None
+    actual_value: float | None = None
+    deviation: float | None = None
+    usd_outcome: str | None = None
+    is_released: bool = False
     bias_recommendation: str | None = None  # "BUY" | "SELL" | "NEUTRAL" | "WATCH"
     confidence_score: float | None = None
 
