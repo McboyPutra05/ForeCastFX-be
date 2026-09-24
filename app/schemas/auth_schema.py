@@ -31,12 +31,14 @@ class RegisterRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user: "UserResponse"
 
 
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str | None
+    avatar_url: str | None
     is_active: bool
     created_at: datetime
 
