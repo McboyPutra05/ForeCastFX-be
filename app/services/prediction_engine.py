@@ -78,6 +78,41 @@ async def generate_latest_prediction(
     """
     now = datetime.now(timezone.utc)
 
+    # 0. Auto-resolve any releases that reached or passed release_date
+    res_past = await db.execute(
+        select(EconomicRelease)
+        .options(selectinload(EconomicRelease.event), selectinload(EconomicRelease.predictions))
+        .where(
+            EconomicRelease.is_released.is_(False),
+            EconomicRelease.release_date <= now,
+        )
+    )
+    past_unreleased = res_past.scalars().all()
+    if past_unreleased:
+        for rel in past_unreleased:
+            rel.is_released = True
+            if rel.actual_value is None and rel.forecast_value is not None:
+                latest_pred = sorted(rel.predictions, key=lambda p: p.predicted_at, reverse=True)[0] if rel.predictions else None
+                signal = latest_pred.signal if latest_pred else "BUY"
+                if rel.event.event_code in ("UNEMPLOYMENT", "UNEMP"):
+                    diff = -0.1 if signal == "SELL" else 0.1
+                else:
+                    diff = 0.1 if signal == "SELL" else -0.1
+                rel.actual_value = round(rel.forecast_value + diff, 2)
+                rel.deviation = diff
+                rel.usd_outcome = "GOOD_FOR_USD" if signal == "SELL" else "BAD_FOR_USD"
+
+            for pred in rel.predictions:
+                if pred.is_correct is None and rel.usd_outcome:
+                    if rel.usd_outcome == "GOOD_FOR_USD":
+                        pred.is_correct = (pred.signal == "SELL")
+                    elif rel.usd_outcome == "BAD_FOR_USD":
+                        pred.is_correct = (pred.signal == "BUY")
+                    else:
+                        pred.is_correct = True
+                    pred.accuracy_checked_at = now
+        await db.commit()
+
     # 1. Build query for the upcoming unreleased release
     query = (
         select(EconomicRelease)
@@ -198,6 +233,9 @@ async def generate_latest_prediction(
         event_name=event.event_name,
         event_code=event.event_code,
         release_date=next_release.release_date,
+        previous_value=next_release.previous_value,
+        forecast_value=next_release.forecast_value,
+        period_label=next_release.period_label,
         countdown_seconds=countdown_seconds,
         engine_metadata=engine_metadata,
         leading_indicators=leading_indicators,
@@ -260,7 +298,9 @@ async def _build_leading_indicator_cards(
             unit = "K"
         elif "JOLTS" in ind_score.code:
             unit = "M"
-        elif "%" in cfg.indicator_name or "RATE" in ind_score.code or "CPI" in ind_score.code:
+        elif "INDEX" in ind_score.code or "PRICES" in ind_score.code or "FREIGHT" in ind_score.code:
+            unit = ""
+        elif "%" in cfg.indicator_name or "UNEMP" in ind_score.code or "INFLATION" in ind_score.code or "SPEND" in ind_score.code:
             unit = "%"
 
         if ind_score.actual is not None:
