@@ -57,6 +57,9 @@ INDICATOR_SIGMAS: dict[str, float] = {
     "RETAIL_QTD": 0.3,        # percentage points
     "UMICH_SENT": 2.0,        # index points
     "AVG_HOURLY": 0.1,        # percentage points
+    "CRB_INDEX": 5.0,         # index points
+    "ISM_MFG_PRICES": 2.0,    # index points
+    "FREIGHT_RATES": 4.0,     # index points
 }
 
 # Reliable pre-event fundamental intelligence data (fallback if live release not yet in DB)
@@ -66,6 +69,11 @@ FALLBACK_INDICATOR_DATA: dict[str, dict] = {
     "JOBLESS_4W": {"actual": 209.5, "forecast": 206.0, "previous": 205.0},
     "ISM_EMP": {"actual": 48.8, "forecast": 50.0, "previous": 50.2},
     "JOLTS": {"actual": 7.21, "forecast": 7.33, "previous": 7.36},
+
+    # PPI (Wholesale producer price leading indicators - Sep 10, 2026)
+    "CRB_INDEX": {"actual": 284.5, "forecast": 280.0, "previous": 278.2},
+    "ISM_MFG_PRICES": {"actual": 54.0, "forecast": 52.4, "previous": 51.0},
+    "FREIGHT_RATES": {"actual": 112.5, "forecast": 110.0, "previous": 108.0},
 
     # CPI (Dovish input costs easing consumer inflation)
     "PPI_FD": {"actual": 0.2, "forecast": 0.3, "previous": 0.3},
