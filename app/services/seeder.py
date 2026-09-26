@@ -146,7 +146,10 @@ LEADING_INDICATOR_EVENTS = [
     {"event_name": "U. of Michigan Consumer Sentiment", "event_code": "UMICH_SENT", "impact": "MEDIUM", "country_code": "USD", "description": "Consumer optimism directly correlates with retail buying propensity."},
     {"event_name": "Average Hourly Earnings m/m", "event_code": "AVG_HOURLY", "impact": "HIGH", "country_code": "USD", "description": "Higher wages provide additional purchasing power for retail consumption."},
     {"event_name": "Redbook Index (Weekly Same-Store)", "event_code": "REDBOOK", "impact": "LOW", "country_code": "USD", "description": "Weekly retail chain sales proxy for retail momentum."},
-    {"event_name": "US Auto Sales (Monthly)", "event_code": "AUTO_SALES", "impact": "LOW", "country_code": "USD", "description": "Vehicle sales make up a significant portion of retail sales value."},
+    # PPI Leading (Section 2.11)
+    {"event_name": "CRB Commodity Price Index", "event_code": "CRB_INDEX", "impact": "MEDIUM", "country_code": "USD", "description": "Commodity Research Bureau raw materials and commodity price index."},
+    {"event_name": "ISM Manufacturing Prices Paid", "event_code": "ISM_MFG_PRICES", "impact": "MEDIUM", "country_code": "USD", "description": "Input costs paid by manufacturers for raw materials."},
+    {"event_name": "Global Freight & Shipping Rates", "event_code": "FREIGHT_RATES", "impact": "MEDIUM", "country_code": "USD", "description": "Logistics and shipping rates driving producer goods delivery costs."},
 ]
 
 # Config definitions per IndicatorAnalysisFullNews.md Section 2 & 3
@@ -156,6 +159,11 @@ DEFAULT_INDICATOR_CONFIGS = [
     {"target_event_code": "NFP", "indicator_code": "JOBLESS_4W", "indicator_name": "Initial Jobless Claims (4-Week Avg)", "weight": 0.25, "correlation_direction": -1, "description": "Rising claims indicate weakening NFP. Negative correlation."},
     {"target_event_code": "NFP", "indicator_code": "ISM_EMP", "indicator_name": "ISM Manufacturing & Services Employment", "weight": 0.20, "correlation_direction": 1, "description": "Sub-index above 50 indicates employment expansion across sectors."},
     {"target_event_code": "NFP", "indicator_code": "JOLTS", "indicator_name": "JOLTS Job Openings", "weight": 0.20, "correlation_direction": 1, "description": "Higher job openings indicate high labor absorption capacity."},
+
+    # PPI (Section 2.11)
+    {"target_event_code": "PPI", "indicator_code": "CRB_INDEX", "indicator_name": "CRB Commodity Price Index", "weight": 0.40, "correlation_direction": 1, "description": "Raw material and industrial commodity prices directly drive wholesale costs."},
+    {"target_event_code": "PPI", "indicator_code": "ISM_MFG_PRICES", "indicator_name": "ISM Manufacturing Prices Paid", "weight": 0.35, "correlation_direction": 1, "description": "Input costs paid by manufacturers for raw materials."},
+    {"target_event_code": "PPI", "indicator_code": "FREIGHT_RATES", "indicator_name": "Global Freight & Shipping Rates", "weight": 0.25, "correlation_direction": 1, "description": "Logistics and shipping costs impacting intermediate goods."},
 
     # CPI (Section 2.3)
     {"target_event_code": "CPI", "indicator_code": "PPI_FD", "indicator_name": "PPI Final Demand", "weight": 0.35, "correlation_direction": 1, "description": "Producer-level inflation leads consumer inflation by 1-2 months."},
@@ -186,6 +194,7 @@ async def ensure_database_ready(session: AsyncSession) -> None:
     """
     Ensure all tables exist and all master data and leading indicator events are seeded.
     Called automatically on FastAPI startup.
+    Does NOT modify or overwrite economic releases or predictions.
     """
     # 1. Create tables if not exist
     async with engine.begin() as conn:
@@ -213,267 +222,6 @@ async def ensure_database_ready(session: AsyncSession) -> None:
             session.add(LeadingIndicatorConfig(**cfg))
     await session.flush()
 
-    # 4. Check if NFP upcoming release is properly scheduled for Friday Sep 4 12:30 UTC
-    await _sync_forex_factory_calendar_and_indicators(session)
-
     await session.commit()
-    logger.info("Database verification and initialization complete.")
+    logger.info("Database verification and initialization complete (Metadata only, no mock overrides).")
 
-
-async def _sync_forex_factory_calendar_and_indicators(session: AsyncSession) -> None:
-    """
-    Ensures the upcoming events and leading indicators match the real-world Forex Factory calendar:
-    - Target Hero Event: US Non-Farm Payrolls (NFP) on Friday, Sep 4, 2026 at 08:30 EDT = 12:30 UTC = 19:30 WIB (7:30 PM).
-    - Released Leading Indicators for NFP:
-      * ADP: Released Sep 2 (Actual 42.0K vs Forecast 47.0K -> Miss -5K)
-      * Initial Claims: Released Sep 3 (Actual 210.0K vs Forecast 205.0K -> Claims rose)
-      * ISM Employment: Released Sep 1 (Actual 48.8 vs Forecast 50.0 -> Contraction)
-      * JOLTS: Released Sep 1 (Actual 7.21M vs Forecast 7.33M -> Openings fell)
-    - Active Prediction for NFP: BUY XAUUSD (78.4% Confidence, Dovish NFP / Bad for USD).
-    """
-    events_res = await session.execute(select(EconomicEvent))
-    events = {e.event_code: e for e in events_res.scalars().all()}
-
-    if "NFP" not in events:
-        return
-
-    now = datetime.now(timezone.utc)
-
-    # Check if NFP already has an upcoming release with exact 12:30 UTC time
-    nfp_target_date = datetime(2026, 9, 4, 12, 30, 0, tzinfo=timezone.utc)
-    if nfp_target_date <= now:
-        # If past, next Friday at 12:30 UTC
-        days_ahead = (4 - now.weekday()) % 7
-        if days_ahead <= 0:
-            days_ahead += 7
-        nfp_target_date = (now + timedelta(days=days_ahead)).replace(
-            hour=12, minute=30, second=0, microsecond=0
-        )
-
-    # Check for any upcoming unreleased NFP
-    nfp_rel_res = await session.execute(
-        select(EconomicRelease)
-        .where(
-            EconomicRelease.event_id == events["NFP"].id,
-            EconomicRelease.is_released.is_(False),
-        )
-    )
-    nfp_releases = nfp_rel_res.scalars().all()
-
-    if not nfp_releases:
-        # Create new NFP upcoming release
-        nfp_release = EconomicRelease(
-            event_id=events["NFP"].id,
-            release_date=nfp_target_date,
-            period_label="Aug 2026",
-            previous_value=-23.0,
-            forecast_value=55.0,
-            actual_value=None,
-            is_released=False,
-        )
-        session.add(nfp_release)
-        await session.flush()
-    else:
-        # Update the first and remove duplicate future placeholders
-        nfp_release = nfp_releases[0]
-        nfp_release.release_date = nfp_target_date
-        nfp_release.forecast_value = 55.0
-        nfp_release.previous_value = -23.0
-        nfp_release.period_label = "Aug 2026"
-        for dup in nfp_releases[1:]:
-            await session.delete(dup)
-        await session.flush()
-
-    # Ensure Unemployment Rate upcoming release matches NFP date
-    if "UNEMPLOYMENT" in events:
-        unemp_rel_res = await session.execute(
-            select(EconomicRelease).where(
-                EconomicRelease.event_id == events["UNEMPLOYMENT"].id,
-                EconomicRelease.is_released.is_(False),
-            )
-        )
-        unemp_releases = unemp_rel_res.scalars().all()
-        if not unemp_releases:
-            session.add(EconomicRelease(
-                event_id=events["UNEMPLOYMENT"].id,
-                release_date=nfp_target_date,
-                period_label="Aug 2026",
-                previous_value=4.1,
-                forecast_value=4.1,
-                is_released=False,
-            ))
-        else:
-            unemp_releases[0].release_date = nfp_target_date
-            unemp_releases[0].forecast_value = 4.1
-            unemp_releases[0].previous_value = 4.1
-            for dup in unemp_releases[1:]:
-                await session.delete(dup)
-
-    # Ensure Average Hourly Earnings upcoming release
-    if "AVG_HOURLY" in events:
-        avg_rel_res = await session.execute(
-            select(EconomicRelease).where(
-                EconomicRelease.event_id == events["AVG_HOURLY"].id,
-                EconomicRelease.is_released.is_(False),
-            )
-        )
-        avg_release = avg_rel_res.scalars().first()
-        if not avg_release:
-            session.add(EconomicRelease(
-                event_id=events["AVG_HOURLY"].id,
-                release_date=nfp_target_date,
-                period_label="Aug 2026",
-                previous_value=0.1,
-                forecast_value=0.3,
-                is_released=False,
-            ))
-
-    # ---------------------------------------------------------------------------
-    # Seed or update the 4 Leading Indicator releases for NFP
-    # ---------------------------------------------------------------------------
-    leading_data_nfp = [
-        ("ADP", datetime(2026, 9, 2, 12, 15, 0, tzinfo=timezone.utc), "Aug 2026", 44.0, 47.0, 42.0, -5.0, "BAD_FOR_USD"),
-        ("JOBLESS_4W", datetime(2026, 9, 3, 12, 30, 0, tzinfo=timezone.utc), "4W Avg", 205.0, 206.0, 209.5, 3.5, "BAD_FOR_USD"),
-        ("ISM_EMP", datetime(2026, 9, 1, 14, 0, 0, tzinfo=timezone.utc), "Aug 2026", 50.2, 50.0, 48.8, -1.2, "BAD_FOR_USD"),
-        ("JOLTS", datetime(2026, 9, 1, 14, 0, 0, tzinfo=timezone.utc), "Jul 2026", 7.36, 7.33, 7.21, -0.12, "BAD_FOR_USD"),
-    ]
-
-    for code, r_date, period, prev, fcast, act, dev, outcome in leading_data_nfp:
-        if code not in events:
-            continue
-        ev = events[code]
-        existing = await session.execute(
-            select(EconomicRelease).where(
-                EconomicRelease.event_id == ev.id,
-                EconomicRelease.is_released.is_(True),
-            )
-        )
-        rel = existing.scalars().first()
-        if not rel:
-            session.add(EconomicRelease(
-                event_id=ev.id,
-                release_date=r_date,
-                period_label=period,
-                previous_value=prev,
-                forecast_value=fcast,
-                actual_value=act,
-                deviation=dev,
-                usd_outcome=outcome,
-                is_released=True,
-            ))
-        else:
-            rel.actual_value = act
-            rel.forecast_value = fcast
-            rel.previous_value = prev
-            rel.deviation = dev
-            rel.usd_outcome = outcome
-
-    # ---------------------------------------------------------------------------
-    # Seed or update the 4 Leading Indicator releases for CPI
-    # ---------------------------------------------------------------------------
-    leading_data_cpi = [
-        ("PPI_FD", datetime(2026, 8, 28, 12, 30, 0, tzinfo=timezone.utc), "Aug 2026", 0.3, 0.3, 0.2, -0.1, "BAD_FOR_USD"),
-        ("ISM_PRICES", datetime(2026, 9, 1, 14, 0, 0, tzinfo=timezone.utc), "Aug 2026", 54.5, 54.0, 52.4, -1.6, "BAD_FOR_USD"),
-        ("WTI_OIL", datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc), "Aug 2026", 77.0, 76.5, 74.2, -2.3, "BAD_FOR_USD"),
-        ("IMPORT_PRICES", datetime(2026, 8, 25, 12, 30, 0, tzinfo=timezone.utc), "Aug 2026", 0.2, 0.2, 0.1, -0.1, "BAD_FOR_USD"),
-    ]
-
-    for code, r_date, period, prev, fcast, act, dev, outcome in leading_data_cpi:
-        if code not in events:
-            continue
-        ev = events[code]
-        existing = await session.execute(
-            select(EconomicRelease).where(
-                EconomicRelease.event_id == ev.id,
-                EconomicRelease.is_released.is_(True),
-            )
-        )
-        if not existing.scalars().first():
-            session.add(EconomicRelease(
-                event_id=ev.id,
-                release_date=r_date,
-                period_label=period,
-                previous_value=prev,
-                forecast_value=fcast,
-                actual_value=act,
-                deviation=dev,
-                usd_outcome=outcome,
-                is_released=True,
-            ))
-
-    # ---------------------------------------------------------------------------
-    # Seed other upcoming High Impact events (PPI, CPI, Retail Sales, FOMC)
-    # with exact Forex Factory times
-    # ---------------------------------------------------------------------------
-    upcoming_other = [
-        ("ISM_SVC", datetime(2026, 9, 3, 14, 0, 0, tzinfo=timezone.utc), "Aug 2026", 54.1, 54.2),
-        ("PPI", datetime(2026, 9, 10, 12, 30, 0, tzinfo=timezone.utc), "Aug 2026", 0.2, 0.3),
-        ("CPI", datetime(2026, 9, 11, 12, 30, 0, tzinfo=timezone.utc), "Aug 2026", 3.1, 2.9),
-        ("RETAIL_SALES", datetime(2026, 9, 15, 12, 30, 0, tzinfo=timezone.utc), "Aug 2026", 0.4, 0.3),
-        ("FOMC", datetime(2026, 9, 16, 18, 0, 0, tzinfo=timezone.utc), "Sep 2026", 5.50, 5.25),
-        ("GDP", datetime(2026, 9, 25, 12, 30, 0, tzinfo=timezone.utc), "Q2 Final", 2.8, 3.0),
-    ]
-
-    for code, r_date, period, prev, fcast in upcoming_other:
-        if code not in events:
-            continue
-        ev = events[code]
-        existing = await session.execute(
-            select(EconomicRelease).where(
-                EconomicRelease.event_id == ev.id,
-                EconomicRelease.is_released.is_(False),
-            )
-        )
-        rel = existing.scalars().first()
-        if not rel:
-            session.add(EconomicRelease(
-                event_id=ev.id,
-                release_date=r_date,
-                period_label=period,
-                previous_value=prev,
-                forecast_value=fcast,
-                is_released=False,
-            ))
-        else:
-            rel.release_date = r_date
-            rel.previous_value = prev
-            rel.forecast_value = fcast
-
-    # ---------------------------------------------------------------------------
-    # Ensure Active Hero Prediction for NFP exists with full indicator breakdown
-    # ---------------------------------------------------------------------------
-    pred_res = await session.execute(
-        select(PredictionLog).where(PredictionLog.release_id == nfp_release.id)
-    )
-    existing_pred = pred_res.scalars().first()
-
-    engine_metadata_nfp = {
-        "indicators": [
-            {"code": "ADP", "weight": 0.35, "actual": 42.0, "forecast": 47.0, "deviation": -5.0, "raw_score": -0.71, "weighted_score": -0.248},
-            {"code": "JOBLESS_4W", "weight": 0.25, "actual": 209.5, "forecast": 206.0, "deviation": 3.5, "raw_score": -0.60, "weighted_score": -0.150},
-            {"code": "ISM_EMP", "weight": 0.20, "actual": 48.8, "forecast": 50.0, "deviation": -1.2, "raw_score": -0.65, "weighted_score": -0.130},
-            {"code": "JOLTS", "weight": 0.20, "actual": 7.21, "forecast": 7.33, "deviation": -0.12, "raw_score": -0.75, "weighted_score": -0.150},
-        ]
-    }
-
-    if not existing_pred:
-        session.add(PredictionLog(
-            release_id=nfp_release.id,
-            signal="BUY",
-            signal_label="BUY XAUUSD",
-            signal_subtitle="Predicted Bias: BAD FOR USD (Dovish NFP)",
-            confidence_score=78.4,
-            composite_score=-0.68,
-            engine_metadata=engine_metadata_nfp,
-            predicted_at=now,
-        ))
-    else:
-        existing_pred.signal = "BUY"
-        existing_pred.signal_label = "BUY XAUUSD"
-        existing_pred.signal_subtitle = "Predicted Bias: BAD FOR USD (Dovish NFP)"
-        existing_pred.confidence_score = 78.4
-        existing_pred.composite_score = -0.68
-        existing_pred.engine_metadata = engine_metadata_nfp
-
-    await session.flush()
-    logger.info("Forex Factory live calendar and leading indicators synchronized.")
