@@ -68,6 +68,9 @@ class LatestPredictionOut(BaseModel):
     event_name: str
     event_code: str
     release_date: datetime
+    previous_value: float | None = None
+    forecast_value: float | None = None
+    period_label: str | None = None
     countdown_seconds: int
     engine_metadata: EngineMetadataOut
     leading_indicators: list[LeadingIndicatorOut] | None = None
