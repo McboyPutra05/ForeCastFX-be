@@ -84,7 +84,10 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         )
 
     access_token = create_access_token(subject=str(user.id))
-    return TokenResponse(access_token=access_token)
+    return TokenResponse(
+        access_token=access_token,
+        user=UserResponse.model_validate(user),
+    )
 
 
 # ---------------------------------------------------------------------------
